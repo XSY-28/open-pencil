@@ -1,0 +1,68 @@
+name: Linux AppImage variable paint proof
+
+on:
+  push:
+    branches: [proof/openpencil-linux-2252]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    if: github.event.repository.fork && github.ref_name == 'proof/openpencil-linux-2252'
+    name: Ubuntu native AppImage ${{ matrix.version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: '0.16.0'
+            sha256: a7d893ac35367c8ea000b00890136ce5861a13bf2574b44760f77849cfdf77a2
+          - version: '0.17.0'
+            sha256: 43da3dbd7a223a103692dd2d9193a86f8ddcb3db7577bd373949aae8455e94fc
+    env:
+      PROOF_VERSION: ${{ matrix.version }}
+      PROOF_SHA: ${{ matrix.sha256 }}
+      OPENPENCIL_TELEMETRY: '0'
+      OPENPENCIL_SELF_UPDATE: '0'
+      DO_NOT_TRACK: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+      - name: Select the isolated work directory
+        run: printf 'PROOF_ROOT=%s/openpencil-paint\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Prepare X11, WebKit dependencies and matching npm tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb xauth xdotool imagemagick libwebkit2gtk-4.1-0
+          mkdir -p "$PROOF_ROOT"
+          npm install --prefix "$PROOF_ROOT/tools" --no-save --no-audit --no-fund \
+            "@open-pencil/cli@$PROOF_VERSION" "@open-pencil/mcp@$PROOF_VERSION"
+          sudo ln -s "$PROOF_ROOT/tools/node_modules/.bin/openpencil-mcp-http" \
+            /usr/local/bin/openpencil-mcp-http
+      - name: Verify the published archive, then unpack without FUSE or installation
+        run: |
+          cd "$PROOF_ROOT"
+          asset="OpenPencil_${PROOF_VERSION}_amd64.AppImage"
+          curl -fsSL --retry 3 -o "$asset" \
+            "https://github.com/open-pencil/open-pencil/releases/download/v$PROOF_VERSION/$asset"
+          printf '%s  %s\n' "$PROOF_SHA" "$asset" | sha256sum --check
+          chmod u+x "$asset"
+          "./$asset" --appimage-extract > extract.log
+      - name: Use actual Linux Tauri, the released CLI and native screen capture
+        run: xvfb-run -a -s '-screen 0 1280x864x24' node tools/ci/linux-variable-paint-proof.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: linux-variable-paint-${{ matrix.version }}
+          path: |
+            ${{ runner.temp }}/openpencil-paint/evidence/*.json
+            ${{ runner.temp }}/openpencil-paint/evidence/*.png
+          if-no-files-found: warn
+          retention-days: 3
