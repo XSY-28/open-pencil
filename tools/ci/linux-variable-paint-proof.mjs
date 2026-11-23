@@ -264,7 +264,8 @@ try {
   assert.equal(report.headless.after, targetColor)
 
   stage('wait for actual AppImage and its MCP bridge')
-  app = spawn(appPath, [fig], { ...options, stdio: ['ignore', 'pipe', 'pipe'] })
+  // The desktop must outlive the short CLI commands that drive it.
+  app = spawn(appPath, [fig], { cwd: documents, env, stdio: ['ignore', 'pipe', 'pipe'] })
   app.on('error', (error) => {
     appLog = error.message
   })
@@ -282,6 +283,7 @@ try {
     true,
     'The MCP companion requires its normal authentication'
   )
+  report.readyMCPHealth = report.mcpHealth
   report.documentId = documentId
   stage('live MCP tool roundtrip')
   const live = await draw(undefined, 'color/smoke')
