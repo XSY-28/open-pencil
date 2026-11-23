@@ -12,7 +12,7 @@ jobs:
     if: github.event.repository.fork && github.ref_name == 'proof/openpencil-linux-2252'
     name: Ubuntu native AppImage ${{ matrix.version }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 17
     strategy:
       fail-fast: false
       matrix:
@@ -38,25 +38,11 @@ jobs:
       - name: Select the isolated work directory
         run: printf 'PROOF_ROOT=%s/openpencil-paint\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Prepare X11, WebKit dependencies and matching npm tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb xauth xdotool imagemagick libwebkit2gtk-4.1-0
-          mkdir -p "$PROOF_ROOT"
-          npm install --prefix "$PROOF_ROOT/tools" --no-save --no-audit --no-fund \
-            "@open-pencil/cli@$PROOF_VERSION" "@open-pencil/mcp@$PROOF_VERSION"
-          sudo ln -s "$PROOF_ROOT/tools/node_modules/.bin/openpencil-mcp-http" \
-            /usr/local/bin/openpencil-mcp-http
+        run: bash tools/ci/linux-variable-paint-setup.sh install
       - name: Verify the published archive, then unpack without FUSE or installation
-        run: |
-          cd "$PROOF_ROOT"
-          asset="OpenPencil_${PROOF_VERSION}_amd64.AppImage"
-          curl -fsSL --retry 3 -o "$asset" \
-            "https://github.com/open-pencil/open-pencil/releases/download/v$PROOF_VERSION/$asset"
-          printf '%s  %s\n' "$PROOF_SHA" "$asset" | sha256sum --check
-          chmod u+x "$asset"
-          "./$asset" --appimage-extract > extract.log
+        run: bash tools/ci/linux-variable-paint-setup.sh extract
       - name: Use actual Linux Tauri, the released CLI and native screen capture
-        run: xvfb-run -a -s '-screen 0 1280x864x24' node tools/ci/linux-variable-paint-proof.mjs
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1280x864x24' node tools/ci/linux-variable-paint-proof.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
