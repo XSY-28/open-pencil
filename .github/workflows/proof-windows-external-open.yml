@@ -1,0 +1,56 @@
+name: Windows external open proof
+
+on:
+  push:
+    branches: [proof/openpencil-windows-2018]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    if: github.event.repository.fork && github.ref_name == 'proof/openpencil-windows-2018'
+    name: Windows native proof (${{ matrix.lane }})
+    runs-on: windows-2025
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [master, beta4]
+    env:
+      PROOF_LANE: ${{ matrix.lane }}
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 8
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.x
+          package-manager-cache: false
+      - name: Verify source and prepare the runner
+        run: node tools/ci/windows-external-open-proof.mjs prepare
+      - uses: ./.github/actions/setup/workspace
+        if: matrix.lane == 'master'
+        with:
+          cache-save: 'false'
+          cache-scope: windows-external-open-proof
+      - name: Add the pinned toolchain's Wasm target
+        if: matrix.lane == 'master'
+        run: rustup target add wasm32-unknown-unknown
+      - name: Build the normal desktop executable without an installer
+        if: matrix.lane == 'master'
+        run: bun tauri build --debug --no-bundle --no-sign --ci
+      - name: Exercise native argv opens and independently inspect MCP
+        run: node tools/ci/windows-external-open-proof.mjs run
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: windows-external-open-${{ matrix.lane }}-${{ github.run_attempt }}
+          path: |
+            windows-proof-result/${{ matrix.lane }}/result.json
+            windows-proof-result/${{ matrix.lane }}/*.png
+          if-no-files-found: warn
+          retention-days: 3
